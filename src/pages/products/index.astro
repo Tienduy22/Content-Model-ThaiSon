@@ -1,0 +1,304 @@
+---
+import { getEmDashCollection, getTaxonomyTerms } from "emdash";
+import Base from "../../layouts/Base.astro";
+import ProductCard from "../../components/ProductCard.astro";
+
+const { entries: products, cacheHint } = await getEmDashCollection("products", {
+	status: "published",
+	orderBy: { published_at: "desc" },
+});
+
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const categories = (await getTaxonomyTerms("product_category")) ?? [];
+const productGroups = categories
+	.map((category) => ({
+		category,
+		products: products.filter((product) =>
+			(product.data.terms?.product_category ?? []).some(
+				(term) => term.slug === category.slug
+			)
+		),
+	}))
+	.filter((group) => group.products.length > 0);
+
+const categorizedProductIds = new Set(
+	productGroups.flatMap((group) => group.products.map((product) => product.data.id))
+);
+const uncategorizedProducts = products.filter(
+	(product) => !categorizedProductIds.has(product.data.id)
+);
+
+function portableTextExcerpt(value: unknown, maxLength = 170) {
+	if (!Array.isArray(value)) return undefined;
+
+	const text = value
+		.flatMap((block) => {
+			if (!block || typeof block !== "object") return [];
+			const children = (block as { children?: unknown }).children;
+			if (!Array.isArray(children)) return [];
+			return children.map((child) => {
+				if (!child || typeof child !== "object") return "";
+				const text = (child as { text?: unknown }).text;
+				return typeof text === "string" ? text : "";
+			});
+		})
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
+
+	if (!text) return undefined;
+	return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
+}
+---
+
+<Base
+	title="Sản phẩm"
+	description="Khám phá danh mục sản phẩm và thông tin chi tiết của từng sản phẩm."
+>
+	<div class="products-page">
+		<header class="page-header">
+			<div>
+				<p class="page-eyebrow">Danh mục</p>
+				<h1 class="page-title">Sản phẩm</h1>
+			</div>
+			<p class="page-description">
+				{productGroups.length} danh mục · {products.length} sản phẩm
+			</p>
+		</header>
+
+		{
+			products.length === 0 ? (
+				<section class="empty-state">
+					<h2>Chưa có sản phẩm</h2>
+					<p>Sản phẩm mới sẽ xuất hiện tại đây sau khi được xuất bản.</p>
+				</section>
+			) : (
+				<>
+					<nav class="category-nav" aria-label="Danh mục sản phẩm">
+						{productGroups.map(({ category, products: categoryProducts }) => (
+							<a href={`#${category.slug}`}>
+								<span>{category.label}</span>
+								<small>{categoryProducts.length}</small>
+							</a>
+						))}
+					</nav>
+
+					<div class="category-sections">
+						{productGroups.map(({ category, products: categoryProducts }) => (
+							<section class="category-section" id={category.slug}>
+								<header class="category-header">
+									<h2>{category.label}</h2>
+									<span>{categoryProducts.length} sản phẩm</span>
+								</header>
+								<div class="products-grid">
+									{categoryProducts.map((product) => (
+										<ProductCard
+											title={product.data.title}
+											description={portableTextExcerpt(product.data.description)}
+											featuredImage={product.data.featured_image}
+											href={`/products/${product.id}`}
+											origin={product.data.origin}
+											availability={product.data.availability}
+											sizes={product.data.sizes}
+											categories={[{ slug: category.slug, label: category.label }]}
+										/>
+									))}
+								</div>
+							</section>
+						))}
+
+						{uncategorizedProducts.length > 0 && (
+							<section class="category-section" id="khac">
+								<header class="category-header">
+									<h2>Sản phẩm khác</h2>
+									<span>{uncategorizedProducts.length} sản phẩm</span>
+								</header>
+								<div class="products-grid">
+									{uncategorizedProducts.map((product) => (
+										<ProductCard
+											title={product.data.title}
+											description={portableTextExcerpt(product.data.description)}
+											featuredImage={product.data.featured_image}
+											href={`/products/${product.id}`}
+											origin={product.data.origin}
+											availability={product.data.availability}
+											sizes={product.data.sizes}
+										/>
+									))}
+								</div>
+							</section>
+						)}
+					</div>
+				</>
+			)
+		}
+	</div>
+</Base>
+
+<style>
+	.products-page {
+		max-width: var(--wide-width);
+		margin: 0 auto;
+		padding: var(--spacing-12) var(--spacing-6) var(--spacing-16);
+	}
+
+	.page-header {
+		display: flex;
+		align-items: end;
+		justify-content: space-between;
+		gap: var(--spacing-8);
+		margin-bottom: var(--spacing-12);
+		padding-bottom: var(--spacing-6);
+		border-bottom: 1px solid var(--color-border-subtle);
+	}
+
+	.page-eyebrow {
+		margin-bottom: var(--spacing-2);
+		font-size: var(--font-size-xs);
+		font-weight: 500;
+		color: var(--color-brand);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wider);
+	}
+
+	.page-title {
+		font-size: var(--font-size-4xl);
+		font-weight: var(--font-weight-display);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.page-description {
+		color: var(--color-muted);
+		font-size: var(--font-size-lg);
+		white-space: nowrap;
+	}
+
+	.category-nav {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-16);
+	}
+
+	.category-nav a {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--spacing-3);
+		padding: var(--spacing-3) var(--spacing-4);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		color: var(--color-text-secondary);
+		text-decoration: none;
+		transition:
+			border-color var(--transition-fast),
+			color var(--transition-fast),
+			background var(--transition-fast);
+	}
+
+	.category-nav a:hover {
+		border-color: var(--color-brand);
+		background: var(--color-surface);
+		color: var(--color-brand);
+	}
+
+	.category-nav small {
+		color: var(--color-muted);
+		font-size: var(--font-size-xs);
+	}
+
+	.category-sections {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-16);
+	}
+
+	.category-section {
+		scroll-margin-top: calc(var(--nav-height) + var(--spacing-6));
+	}
+
+	.category-header {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--spacing-4);
+		margin-bottom: var(--spacing-8);
+		padding-bottom: var(--spacing-4);
+		border-bottom: 1px solid var(--color-border-subtle);
+	}
+
+	.category-header h2 {
+		font-size: var(--font-size-2xl);
+		font-weight: var(--font-weight-heading);
+		letter-spacing: var(--tracking-snug);
+	}
+
+	.category-header span {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.products-grid {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--spacing-12) var(--spacing-8);
+	}
+
+	.empty-state {
+		max-width: 440px;
+		padding: var(--spacing-16) 0;
+	}
+
+	.empty-state h2 {
+		margin-bottom: var(--spacing-3);
+		font-size: var(--font-size-2xl);
+	}
+
+	.empty-state p {
+		color: var(--color-muted);
+		line-height: var(--leading-relaxed);
+	}
+
+	@media (max-width: 900px) {
+		.products-page {
+			padding: var(--spacing-8) var(--spacing-4) var(--spacing-12);
+		}
+
+		.products-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: var(--spacing-10) var(--spacing-6);
+		}
+
+		.category-nav {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			margin-bottom: var(--spacing-12);
+		}
+	}
+
+	@media (max-width: 600px) {
+		.page-header {
+			align-items: start;
+			flex-direction: column;
+			gap: var(--spacing-3);
+			margin-bottom: var(--spacing-8);
+		}
+
+		.page-title {
+			font-size: var(--font-size-3xl);
+		}
+
+		.products-grid {
+			grid-template-columns: 1fr;
+			gap: var(--spacing-10);
+		}
+
+		.category-nav {
+			grid-template-columns: 1fr;
+		}
+
+		.category-sections {
+			gap: var(--spacing-12);
+		}
+	}
+</style>
